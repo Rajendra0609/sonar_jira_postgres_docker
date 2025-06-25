@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=raja
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+      - ./db-init-multiple-users.sql:/docker-entrypoint-initdb.d/db-init-multiple-users.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - test_raja
+
+  sonarqube:
+    image: sonarqube:latest
+    container_name: sonarqube
+    ports:
+      - "9000:9000"
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://postgres:5432/sonar_db
+      - SONAR_JDBC_USERNAME=${SONAR_USER}
+      - SONAR_JDBC_PASSWORD=${SONAR_PASSWORD}
+      - SONAR_EMBEDDED_DATABASE_PORT=5432
+    volumes:
+      - sonarqube_shared:/opt/sonarqube
+    mem_limit: 2G
+    memswap_limit: 3G  # Total memory + swap limit
+    healthcheck:
+      test: ["CMD-SHELL", "curl -I http://localhost:9000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      - postgres
+    user: "1000:1000"  # runs as a non-root user
+    read_only: true    # make root file system read-only
+    tmpfs:
+      - /tmp           # temp file system
+    cap_drop:
+      - ALL            # drop all the linux capabilities
+    security_opt:
+      - no-new-privileges:true   # prevent privilege escalation
+    networks:
+      - test_raja
+
+  jira:
+    image: atlassian/jira-software:latest
+    container_name: jira
+    ports:
+      - "8080:8080"
+    environment:
+      - ATL_DB_TYPE=postgres72              # Use the appropriate DB type for your setup
+      - ATL_DB_HOST=postgres_sonar          # Referencing the existing postgres container
+      - ATL_DB_PORT=5432
+      - ATL_DB_USER=${JIRA_USER}
+      - ATL_DB_PASSWORD=${JIRA_PASSWORD}
+      - ATL_DB_NAME=${JIRA_DB}               # Optionally, use a separate database for Jira
+    volumes:
+      - jira_data:/var/atlassian/application-data/jira
+    depends_on:
+      - postgres
+    networks:
+      - test_raja
+
+volumes:
+  sonarqube_shared:
+  jira_data:
+
+networks:
+  test_raja:
+    driver: bridge
